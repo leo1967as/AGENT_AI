@@ -14,3 +14,6 @@ langchain-community
 langchain-core
 langchainhub
 pyautogen  # For multi-agent optional
+chromadb
+pypdf
+python-docx

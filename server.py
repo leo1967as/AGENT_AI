@@ -1,23 +1,82 @@
 import json
 import os
+import uuid
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
 from fastmcp import FastMCP
+
+# --- 💡 1. เพิ่ม import สำหรับความสามารถใหม่ ---
+import chromadb
+import pypdf
+import docx
 from duckduckgo_search import DDGS
 import numexpr as ne
 import pandas as pd
 import yfinance as yf
 from dotenv import load_dotenv
+
 # สร้าง MCP instance
-mcp = FastMCP("My Simple & Robust Web Agent Server")
+mcp = FastMCP("The Archivist's Tools")
 
 # กำหนดพื้นที่ทำงานที่ปลอดภัย
 WORKSPACE_DIR = "workspace"
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
-# ------------------- BROWSE URL TOOL (REBUILT) -------------------
+# --- Memory Setup ---
+MEMORY_DIR = "memory"
+os.makedirs(MEMORY_DIR, exist_ok=True)
+client = chromadb.PersistentClient(path=MEMORY_DIR)
+memory_collection = client.get_or_create_collection(name="memories")
+
+# --- NEW MEMORY TOOLS ---
+
+@mcp.tool()
+def save_memory_chunk(content: str, metadata: dict = None) -> str:
+    """
+    บันทึก "ชิ้นส่วนของความทรงจำ" (content) ที่สำคัญลงในฐานข้อมูลความจำระยะยาว
+    """
+    print(f"--- Saving memory chunk: '{content[:50]}...' ---")
+    try:
+        doc_id = f"mem_{int(datetime.now().timestamp())}"
+
+        # --- 💡 จุดแก้ไขที่สำคัญ ---
+        # สร้าง final_metadata ขึ้นมา
+        final_metadata = metadata or {}
+
+        # เพิ่ม timestamp เข้าไปโดยอัตโนมัติเสมอ
+        # เพื่อให้แน่ใจว่า metadata จะไม่ว่างเปล่า
+        final_metadata['saved_at'] = datetime.now().isoformat()
+
+        memory_collection.add(
+            documents=[content],
+            metadatas=[final_metadata], # <--- ใช้ final_metadata ที่มีข้อมูลเสมอ
+            ids=[doc_id]
+        )
+        return json.dumps({"status": "success", "message": f"Memory chunk saved with ID {doc_id}."})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to save memory: {str(e)}"})
+
+@mcp.tool()
+def search_relevant_memories(query: str, n_results: int = 5) -> str:
+    """
+    ค้นหา memories ที่เกี่ยวข้องจาก ChromaDB โดยใช้ semantic search
+    Args:
+        query (str): คำค้นหา
+        n_results (int): จำนวนผลลัพธ์สูงสุดที่ต้องการ (default=5)
+    """
+    try:
+        results = memory_collection.query(query_texts=[query], n_results=n_results)
+        memories = []
+        if results['documents']:
+            for doc, meta, id in zip(results['documents'][0], results['metadatas'][0], results['ids'][0]):
+                memories.append({"id": id, "content": doc, "metadata": meta})
+        return json.dumps({"memories": memories}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+# ------------------- EXISTING TOOLS -------------------
 
 @mcp.tool()
 def browse_url(url: str) -> str:
@@ -56,8 +115,6 @@ def browse_url(url: str) -> str:
     except Exception as e:
         print(f"!!! ERROR in browse_url tool: {e} !!!")
         return json.dumps({"error": f"An exception occurred while browsing the URL: {str(e)}"}, ensure_ascii=False)
-
-# ------------------- OTHER TOOLS (No Changes) -------------------
 
 @mcp.tool()
 def web_search(query: str, num_results: int = 5) -> str:
