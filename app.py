@@ -21,14 +21,13 @@ async def start():
     # สร้าง Agent ที่มีความจำที่ถูกต้อง
     agent_with_memory = RunnableWithMessageHistory(
         agent_instance.agent_executor,
-        # ใช้ cl.user_session.get("chat_history") เพื่อให้ Chainlit จัดการ memory ให้
-        lambda session_id: cl.user_session.get("chat_history"),
+        # ใช้ lambda ที่ return chat_history ถ้ามี หรือสร้างใหม่ถ้าไม่มี
+        lambda session_id: cl.user_session.get("chat_history") or ChatMessageHistory(),
         input_messages_key="input",
         history_messages_key="chat_history",
     )
-    
-    # บันทึกประวัติแชทและ Agent ไว้ใน session
-    cl.user_session.set("chat_history", ChatMessageHistory())
+
+    # บันทึก Agent ไว้ใน session (ไม่ต้อง set chat_history เพราะ lambda จัดการเอง)
     cl.user_session.set("agent_with_memory", agent_with_memory)
 
     # --- 💡 ยกเครื่องหน้าจอเริ่มต้นทั้งหมด ---
@@ -129,7 +128,7 @@ async def main(message: cl.Message):
     """
     # --- 💡 โค้ดส่วนรัน Agent ---
     agent_with_memory = cl.user_session.get("agent_with_memory")
-    session_id = cl.user_session.get("id")
+    session_id = str(cl.user_session.get("id")) # ใช้เป็น string เพื่อความแน่ใจ
     main_actions = cl.user_session.get("main_actions") # ดึงปุ่มหลักที่เก็บไว้ออกมา
 
     callbacks = [cl.LangchainCallbackHandler(stream_final_answer=False)]
@@ -141,6 +140,11 @@ async def main(message: cl.Message):
         )
 
     final_answer = response.get("output", "ขออภัย, ผมไม่สามารถหาคำตอบได้ในขณะนี้")
+
+    # --- 💡 เพิ่ม messages ลงใน chat_history ---
+    chat_history = cl.user_session.get("chat_history")
+    chat_history.add_user_message(message.content)
+    chat_history.add_ai_message(final_answer)
 
     # --- 💡 สร้าง Elements ที่จะแสดงผล ---
     elements = []
