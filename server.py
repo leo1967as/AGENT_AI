@@ -11,11 +11,9 @@ from fastmcp import FastMCP
 import chromadb
 import pypdf
 import docx
-from duckduckgo_search import DDGS
 import numexpr as ne
 import pandas as pd
 import yfinance as yf
-from dotenv import load_dotenv
 
 # สร้าง MCP instance
 mcp = FastMCP("The Archivist's Tools")
@@ -76,6 +74,49 @@ def search_relevant_memories(query: str, n_results: int = 5) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
+# ------------------- NEW COMMAND CENTER TOOLS -------------------
+
+@mcp.tool()
+def list_all_memories() -> str:
+    """
+    ดึงข้อมูล "ความทรงจำ" ทั้งหมดที่ถูกบันทึกไว้ในฐานข้อมูล Vector DB
+    คืนค่าเป็นลิสต์ของความทรงจำทั้งหมด
+    """
+    print("--- Listing all memories... ---")
+    try:
+        # .get() โดยไม่ใส่พารามิเตอร์ จะดึงข้อมูลทั้งหมดใน collection
+        all_memories = memory_collection.get()
+        # จัดรูปแบบให้อยู่ในโครงสร้างที่ชัดเจน
+        formatted_memories = [
+            {"id": mem_id, "content": content, "metadata": meta}
+            for mem_id, content, meta in zip(all_memories['ids'], all_memories['documents'], all_memories['metadatas'])
+        ]
+        return json.dumps({"memories": formatted_memories}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to list memories: {str(e)}"})
+
+@mcp.tool()
+def list_workspace_files() -> str:
+    """
+    แสดงรายการไฟล์ทั้งหมดที่อยู่ในโฟลเดอร์ 'workspace'
+    คืนค่าเป็นลิสต์ของไฟล์พร้อมรายละเอียด
+    """
+    print("--- Listing workspace files... ---")
+    try:
+        files_details = []
+        for filename in os.listdir(WORKSPACE_DIR):
+            path = os.path.join(WORKSPACE_DIR, filename)
+            if os.path.isfile(path):
+                file_stat = os.stat(path)
+                files_details.append({
+                    "filename": filename,
+                    "size_kb": f"{file_stat.st_size / 1024:.2f} KB",
+                    "last_modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+                })
+        return json.dumps({"files": files_details}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to list workspace files: {str(e)}"})
+
 # ------------------- EXISTING TOOLS -------------------
 
 @mcp.tool()
@@ -116,31 +157,6 @@ def browse_url(url: str) -> str:
         print(f"!!! ERROR in browse_url tool: {e} !!!")
         return json.dumps({"error": f"An exception occurred while browsing the URL: {str(e)}"}, ensure_ascii=False)
 
-@mcp.tool()
-def web_search(query: str, num_results: int = 5) -> str:
-    """ค้นหาข้อมูลเว็บด้วย DuckDuckGo อย่างเดียวเท่านั้น Args: query (str), num_results (int, default=5)"""
-    print(f"--- Server received web_search request for query: '{query}' ---")
-    try:
-        with DDGS() as ddgs:
-            # --- 💡 จุดที่แก้ไข: เราจะเพิ่ม `backend="lite"` ---
-            # "lite" backend จะใช้ DuckDuckGo เวอร์ชันที่เรียบง่าย, รวดเร็ว, และเสถียรที่สุด
-            # และที่สำคัญคือ "จะไม่" พยายามไปเรียกใช้เอนจิ้นอื่น เช่น Brave
-            results = list(ddgs.text(query, backend="lite", max_results=num_results))
-
-        if not results:
-            return json.dumps({"error": "No results found from DuckDuckGo."})
-
-        output = [{
-            "title": r.get('title', 'No Title'),
-            "snippet": r.get('body', '')[:300] + "...",
-            "url": r.get('href', '')
-        } for r in results]
-
-        return json.dumps(output, ensure_ascii=False, indent=2)
-
-    except Exception as e:
-        print(f"!!! ERROR in web_search tool: {e} !!!")
-        return json.dumps({"error": f"An exception occurred during search: {str(e)}"})
 
 @mcp.tool()
 def get_stock_price(tickers: list[str], period: str = "10d") -> str:

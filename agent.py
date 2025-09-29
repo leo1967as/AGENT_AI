@@ -8,7 +8,6 @@ from langchain.agents import create_react_agent, AgentExecutor, create_openai_to
 from langchain.tools import tool
 from langchain.prompts import PromptTemplate
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.memory import ConversationBufferWindowMemory
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from contextlib import asynccontextmanager
@@ -85,6 +84,13 @@ def sync_save_memory_chunk(content: str, metadata: dict = None) -> str:
 def sync_search_relevant_memories(query: str) -> str:
     """Wrapper สำหรับเรียก tool search_relevant_memories บน MCP server."""
     return _run_async_tool("search_relevant_memories", {"query": query})
+
+# --- 💡 1. เพิ่ม wrapper functions สำหรับ command center tools ---
+def sync_list_all_memories() -> str:
+    return _run_async_tool("list_all_memories", {})
+
+def sync_list_workspace_files() -> str:
+    return _run_async_tool("list_workspace_files", {})
 
 # ------------------- ROBUST TAVILY TOOL (THE FIX) -------------------
 
@@ -189,6 +195,17 @@ def search_relevant_memories(query: str) -> str:
     """
     return sync_search_relevant_memories(query)
 
+# --- 💡 2. เพิ่ม LangChain tool definitions ---
+@tool
+def list_all_memories() -> str:
+    """แสดงรายการความทรงจำทั้งหมดที่บันทึกไว้"""
+    return sync_list_all_memories()
+
+@tool
+def list_workspace_files() -> str:
+    """แสดงรายการไฟล์ทั้งหมดในพื้นที่ทำงาน (workspace)"""
+    return sync_list_workspace_files()
+
 # --- 💡 เพิ่ม Tool ใหม่สำหรับ Human-in-the-Loop ---
 @tool
 async def ask_user(question: str) -> str:
@@ -208,8 +225,7 @@ class AdvancedWebAgent:
     def __init__(self):
         self.llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, base_url="https://openrouter.ai/api/v1")
         # --- 💡 3. เพิ่ม tool ใหม่เข้าไปในลิสต์เครื่องมือของ Agent ---
-        self.tools = [RobustTavilySearchTool(), get_stock_price, get_current_date, write_to_file, read_from_file, ask_user, calculator, save_memory_chunk, search_relevant_memories]
-        self.memory = ConversationBufferWindowMemory(k=5, return_messages=True, memory_key="chat_history") # เพิ่ม memory_key
+        self.tools = [RobustTavilySearchTool(), get_stock_price, get_current_date, write_to_file, read_from_file, ask_user, calculator, save_memory_chunk, search_relevant_memories, list_all_memories, list_workspace_files]
 
         # --- 💡 อัปเกรด "สมอง" และ "บุคลิก" ของ Agent ---
         self.prompt = ChatPromptTemplate.from_messages([
@@ -250,47 +266,14 @@ class AdvancedWebAgent:
             ("placeholder", "{agent_scratchpad}"),
         ])
 
-        # --- 💡 2. เปลี่ยน "สมอง" ของ Agent ---
-        # ใช้ create_openai_tools_agent ซึ่งฉลาดกว่าในการวางแผน
-        self.agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
-        
-        # --- 💡 3. กำหนดค่า AgentExecutor ให้ทำงานกับ Agent ใหม่ ---
-        # เพิ่ม max_iterations ให้เผื่อต้องมีรอบแก้ไข
+        # สร้าง Agent หลัก
+        agent = create_openai_tools_agent(self.llm, self.tools, self.prompt)
+
+        # --- 💡 จุดแก้ไขที่สำคัญ: เราจะสร้าง AgentExecutor ที่นี่ที่เดียว ---
+        # AgentExecutor นี้จะถูก "ห่อหุ้ม" ด้วยระบบความจำในภายหลัง
         self.agent_executor = AgentExecutor(
-            agent=self.agent,
+            agent=agent,
             tools=self.tools,
             verbose=True,
-            max_iterations=12, # เพิ่มให้เผื่อต้องมีรอบแก้ไข
-            memory=self.memory,
             handle_parsing_errors=True
         )
-
-    def process_query(self, query: str):
-        # Tools Agent ต้องการ history ใน key 'chat_history'
-        try:
-            # ใช้ ainvoke เพื่อการทำงานแบบ async ที่ถูกต้อง
-            result = self.agent_executor.invoke({"input": query, "chat_history": self.memory.chat_memory.messages})
-            return result.get('output', 'Agent did not return an output.')
-        except Exception as e:
-            return f"เกิดข้อผิดพลาด: {str(e)}"
-
-# Test
-def main():
-    agent = AdvancedWebAgent()
-    # Scenario 1: Test searching and saving memory
-    query1 = "Go to the website https://python.langchain.com/docs/expression_language/ and summarize what LCEL is, and remember this summary."
-    print("=== Testing Scenario 1 ===")
-    print("Query:", query1)
-    result1 = agent.process_query(query1)
-    print("Result:", result1)
-    print("\n" + "="*50 + "\n")
-
-    # Scenario 2: Test retrieving memory
-    query2 = "What are the benefits of LCEL that we discussed?"
-    print("=== Testing Scenario 2 ===")
-    print("Query:", query2)
-    result2 = agent.process_query(query2)
-    print("Result:", result2)
-
-if __name__ == "__main__":
-    main()
