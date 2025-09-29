@@ -25,7 +25,7 @@ WORKSPACE_DIR = "workspace"
 os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
 # --- Memory Setup ---
-MEMORY_DIR = "memory"
+MEMORY_DIR = "memory_db"
 os.makedirs(MEMORY_DIR, exist_ok=True)
 client = chromadb.PersistentClient(path=MEMORY_DIR)
 memory_collection = client.get_or_create_collection(name="memories")

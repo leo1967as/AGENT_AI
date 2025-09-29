@@ -17,3 +17,5 @@ pyautogen  # For multi-agent optional
 chromadb
 pypdf
 python-docx
+numexpr
+langchain-tavily

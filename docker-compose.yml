@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  cipher-agent:
+    build: .
+    container_name: cipher-agent-container
+    
+    # --- 💡 จุดแก้ไขที่สำคัญที่สุด ---
+    # เราจะเปลี่ยนจาก env_file มาใช้ environment โดยตรง
+    # Docker Compose จะอ่านค่าจากไฟล์ .env ในเครื่องของคุณ
+    # แล้วส่งเข้าไปใน container ให้เอง
+    environment:
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY} # <--- เพิ่ม Tavily Key เข้ามาด้วย
+      
+    ports:
+      - "8000:8000"
+      
+    volumes:
+      # ใช้ "named volume" สำหรับฐานข้อมูล ซึ่งจัดการ Permission ได้ดีที่สุด
+      - cipher_memory:/app/memory_db
+      # ยังคงใช้ bind mount สำหรับ workspace เพื่อให้เราเห็นไฟล์ที่ Agent สร้าง
+      - ./workspace:/app/workspace
+
+# ประกาศ named volume ที่จะถูกจัดการโดย Docker
+volumes:
+  cipher_memory:

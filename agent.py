@@ -14,7 +14,9 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from contextlib import asynccontextmanager
 import chainlit as cl
-from langchain_community.tools.tavily_search import TavilySearchResults
+# from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
+
 # yfinance ไม่จำเป็นต้องใช้ในไฟล์นี้แล้ว เพราะเราจะเรียกผ่าน server ทั้งหมด
 # import yfinance as yf
 import pandas as pd
@@ -159,7 +161,7 @@ async def ask_user(question: str) -> str:
 class AdvancedWebAgent:
     def __init__(self):
         self.llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, base_url="https://openrouter.ai/api/v1")
-        tavily_tool = TavilySearchResults(max_results=5)
+        tavily_tool = TavilySearch(max_results=5)
         # --- 💡 3. เพิ่ม tool ใหม่เข้าไปในลิสต์เครื่องมือของ Agent ---
         self.tools = [tavily_tool, get_stock_price, get_current_date, write_to_file, read_from_file, ask_user, calculator, save_memory_chunk, search_relevant_memories]
         self.memory = ConversationBufferWindowMemory(k=5, return_messages=True, memory_key="chat_history") # เพิ่ม memory_key
