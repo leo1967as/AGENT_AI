@@ -1,8 +1,7 @@
-# agent.py
-
 import os
 import json
 import asyncio
+from typing import Type, Optional, Union
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor, create_openai_tools_agent
@@ -14,7 +13,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from contextlib import asynccontextmanager
 import chainlit as cl
-# from langchain_community.tools.tavily_search import TavilySearchResults
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
 from langchain_tavily import TavilySearch
 
 # yfinance ไม่จำเป็นต้องใช้ในไฟล์นี้แล้ว เพราะเราจะเรียกผ่าน server ทั้งหมด
@@ -85,6 +85,52 @@ def sync_save_memory_chunk(content: str, metadata: dict = None) -> str:
 def sync_search_relevant_memories(query: str) -> str:
     """Wrapper สำหรับเรียก tool search_relevant_memories บน MCP server."""
     return _run_async_tool("search_relevant_memories", {"query": query})
+
+# ------------------- ROBUST TAVILY TOOL (THE FIX) -------------------
+
+class TavilyInput(BaseModel):
+    """Input schema for the Tavily search tool."""
+    query: str = Field(description="The search query.")
+    include_domains: Optional[Union[str, list[str]]] = Field(description="A list of domains to specifically search within.")
+
+class RobustTavilySearchTool(BaseTool):
+    """
+    A wrapper for TavilySearch that is more forgiving with its input types.
+    It automatically converts a string `include_domains` to a list.
+    """
+    name: str = "tavily_search_results_json"
+    description: str = (
+        "A search engine optimized for comprehensive, accurate, and trusted results. "
+        "Useful for when you need to answer questions about real-world events or find up-to-date information."
+    )
+    args_schema: Type[BaseModel] = TavilyInput
+
+    def _run(self, query: str, include_domains: Optional[Union[str, list[str]]] = None) -> str:
+        """Use the tool."""
+        # สร้าง instance ของ tool จริง
+        tavily_tool = TavilySearch(max_results=5)
+        
+        # --- 💡 นี่คือ "เกราะป้องกัน" ของเรา ---
+        final_domains = include_domains
+        if isinstance(final_domains, str) and final_domains:
+            final_domains = [final_domains]
+        
+        # เรียกใช้ tool จริงด้วย argument ที่แก้ไขแล้ว
+        return tavily_tool.invoke({"query": query, "include_domains": final_domains})
+
+    async def _arun(self, query: str, include_domains: Optional[Union[str, list[str]]] = None) -> str:
+        """Use the tool asynchronously."""
+        # สร้าง instance ของ tool จริง
+        tavily_tool = TavilySearch(max_results=5)
+
+        # --- 💡 "เกราะป้องกัน" สำหรับโหมด async ---
+        final_domains = include_domains
+        if isinstance(final_domains, str) and final_domains:
+            final_domains = [final_domains]
+            
+        return await tavily_tool.ainvoke({"query": query, "include_domains": final_domains})
+
+# ------------------- EXISTING TOOLS -------------------
 
 # LangChain Tools (clean description)
 @tool
@@ -161,9 +207,8 @@ async def ask_user(question: str) -> str:
 class AdvancedWebAgent:
     def __init__(self):
         self.llm = ChatOpenAI(model=MODEL, api_key=OPENAI_API_KEY, base_url="https://openrouter.ai/api/v1")
-        tavily_tool = TavilySearch(max_results=5)
         # --- 💡 3. เพิ่ม tool ใหม่เข้าไปในลิสต์เครื่องมือของ Agent ---
-        self.tools = [tavily_tool, get_stock_price, get_current_date, write_to_file, read_from_file, ask_user, calculator, save_memory_chunk, search_relevant_memories]
+        self.tools = [RobustTavilySearchTool(), get_stock_price, get_current_date, write_to_file, read_from_file, ask_user, calculator, save_memory_chunk, search_relevant_memories]
         self.memory = ConversationBufferWindowMemory(k=5, return_messages=True, memory_key="chat_history") # เพิ่ม memory_key
 
         # --- 💡 อัปเกรด "สมอง" และ "บุคลิก" ของ Agent ---
@@ -175,7 +220,7 @@ class AdvancedWebAgent:
             - จัดรูปแบบคำตอบด้วย Markdown ทุกครั้งเพื่อให้อ่านง่าย
 
             **กระบวนการคิดและการทำงาน (Workflow ที่สำคัญที่สุด):**
-            เมื่อได้รับคำสั่ง ให้คุณทำตามกระบวนการ "Search Memory First - Plan-Execute-Critique-Refine - Save Memory Last" นี้เสมอ:
+            เมื่อได้รับคำถาม ให้คุณทำตามกระบวนการ "Search Memory First - Plan-Execute-Critique-Refine - Save Memory Last" นี้เสมอ:
             1.  **Search Memory First:** ก่อนจะเริ่มดำเนินการใดๆ ให้ค้นหาในระบบความจำถาวร (search_relevant_memories) เพื่อดูว่ามีข้อมูลหรือความรู้ที่เกี่ยวข้องกับคำถามหรือไม่ หากมีให้ใช้ข้อมูลนั้นมาเป็นฐานในการทำงานต่อ
             2.  **Plan:** วางแผนว่าจะใช้เครื่องมืออะไรเพื่อบรรลุเป้าหมายที่เหลืออยู่
             3.  **Execute:** ลงมือใช้เครื่องมือตามแผน
