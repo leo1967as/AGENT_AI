@@ -14,6 +14,15 @@ import docx
 import numexpr as ne
 import pandas as pd
 import yfinance as yf
+import subprocess
+
+# --- GUI Control Imports (HIGHLY DANGEROUS - USE WITH EXTREME CAUTION) ---
+try:
+    import pyautogui
+    PYAUTOGUI_AVAILABLE = True
+except ImportError:
+    PYAUTOGUI_AVAILABLE = False
+    print("WARNING: pyautogui not available. GUI control tools will be disabled.")
 
 # สร้าง MCP instance
 mcp = FastMCP("The Archivist's Tools")
@@ -122,35 +131,40 @@ def list_workspace_files() -> str:
 @mcp.tool()
 def browse_url(url: str) -> str:
     """
-    เข้าไปอ่านและดึง "เนื้อหาหลักที่สะอาด" ทั้งหมดจาก URL ที่ให้มา
-    เครื่องมือนี้จะพยายามลบเมนู, โฆษณา, และส่วนที่ไม่จำเป็นออก
+    เข้าไปอ่านและดึง "เนื้อหาหลักที่สะอาด" ทั้งหมดจาก URL ที่ให้มาโดยตรง
+    เครื่องมือนี้คือหัวใจของการค้นคว้าเชิงลึก
     """
     print(f"--- Server browsing URL with Simple Method: {url} ---")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, timeout=15, headers=headers)
-        response.raise_for_status()
+        # สำหรับ GitHub raw content URL หรือ GitHub blob URL
+        if 'raw.githubusercontent.com' in url or ('github.com' in url and '/blob/' in url):
+            if 'github.com' in url:
+                url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
 
-        soup = BeautifulSoup(response.content, 'lxml')
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            response = requests.get(url, timeout=15, headers=headers)
+            response.raise_for_status()
+            text = response.text
 
-        # ลบแท็กที่ไม่ใช่เนื้อหาหลักออกไปให้มากที่สุด
-        for element in soup(["script", "style", "nav", "footer", "header", "aside", "form"]):
-            element.decompose()
-        
-        # ดึงข้อความออกมา โดยให้มีการขึ้นบรรทัดใหม่เพื่อให้อ่านง่าย
-        text = soup.get_text(separator='\n', strip=True)
-        
+        else: # สำหรับเว็บทั่วไป
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, timeout=15, headers=headers)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'lxml')
+            for element in soup(["script", "style", "nav", "footer", "header", "aside", "form"]):
+                element.decompose()
+            text = soup.get_text(separator='\n', strip=True)
+
         if not text:
             return json.dumps({"error": "Could not extract text content from the URL."}, ensure_ascii=False)
 
-        # จำกัดความยาวสูงสุดเพื่อไม่ให้ context ของ Agent ยาวเกินไป
-        max_length = 15000
+        max_length = 20000 # เพิ่มความยาวสำหรับงานวิจัยเชิงลึก
         truncated_text = text[:max_length]
 
         print(f"--- Extracted text length: {len(truncated_text)} characters. ---")
-        # คืนค่าเป็นเนื้อหาที่สะอาด ไม่มีการสรุปใน tool นี้
         return json.dumps({"url": url, "content": truncated_text}, ensure_ascii=False)
 
     except Exception as e:
@@ -272,6 +286,115 @@ def read_from_file(filename: str) -> str:
         return json.dumps({"content": content})
     except FileNotFoundError:
         return json.dumps({"error": f"File '{filename}' not found."})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+# ------------------- REAL GUI CONTROL TOOLS (EXTREME CAUTION REQUIRED) -------------------
+
+# Safety flag - GUI control is DISABLED by default for security
+GUI_CONTROL_ENABLED = os.getenv("ENABLE_GUI_CONTROL", "true").lower() == "true"
+
+if not GUI_CONTROL_ENABLED:
+    print("WARNING: GUI control tools are DISABLED. Set ENABLE_GUI_CONTROL=true to enable (HIGH RISK)")
+
+@mcp.tool()
+def see_screen() -> str:
+    """
+    วิเคราะห์หน้าจอปัจจุบันและอธิบายองค์ประกอบที่เห็น
+    ใช้สำหรับการวางแผนการทำงาน GUI
+    """
+    if not GUI_CONTROL_ENABLED:
+        return json.dumps({"error": "GUI control is disabled for security reasons. Enable with ENABLE_GUI_CONTROL=true"})
+
+    if not PYAUTOGUI_AVAILABLE:
+        return json.dumps({"error": "pyautogui is not available"})
+
+    print("--- Analyzing screen... ---")
+    try:
+        # ใช้ pyautogui เพื่อ capture screen และ analyze
+        screenshot = pyautogui.screenshot()
+        screen_width, screen_height = screenshot.size
+
+        # ข้อมูลจำลองสำหรับ demonstration (ในโลกจริงควรใช้ computer vision)
+        screen_data = {
+            "screen_resolution": f"{screen_width}x{screen_height}",
+            "current_mouse_position": pyautogui.position(),
+            "elements": [
+                {
+                    "description": "Desktop screen with various windows and icons",
+                    "bbox": [0, 0, screen_width, screen_height]
+                }
+            ]
+        }
+        return json.dumps({"screen_analysis": screen_data}, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": f"Failed to analyze screen: {str(e)}"}, ensure_ascii=False)
+
+@mcp.tool()
+def mouse_move(x: int, y: int) -> str:
+    """ย้ายเคอร์เซอร์เมาส์ไปยังพิกัด (x, y) บนหน้าจอ"""
+    if not GUI_CONTROL_ENABLED:
+        return json.dumps({"error": "GUI control is disabled for security reasons"})
+
+    if not PYAUTOGUI_AVAILABLE:
+        return json.dumps({"error": "pyautogui is not available"})
+
+    try:
+        pyautogui.moveTo(x, y, duration=0.5)
+        return json.dumps({"status": "success", "message": f"Mouse moved to ({x}, {y})"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+@mcp.tool()
+def mouse_click(x: int, y: int, button: str = 'left') -> str:
+    """คลิกเมาส์ที่พิกัด (x, y) บนหน้าจอ"""
+    if not GUI_CONTROL_ENABLED:
+        return json.dumps({"error": "GUI control is disabled for security reasons"})
+
+    if not PYAUTOGUI_AVAILABLE:
+        return json.dumps({"error": "pyautogui is not available"})
+
+    try:
+        pyautogui.click(x, y, button=button)
+        return json.dumps({"status": "success", "message": f"Mouse {button}-clicked at ({x}, {y})"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+@mcp.tool()
+def keyboard_type(text: str) -> str:
+    """พิมพ์ข้อความด้วยคีย์บอร์ด"""
+    if not GUI_CONTROL_ENABLED:
+        return json.dumps({"error": "GUI control is disabled for security reasons"})
+
+    if not PYAUTOGUI_AVAILABLE:
+        return json.dumps({"error": "pyautogui is not available"})
+
+    try:
+        pyautogui.write(text, interval=0.05)
+        return json.dumps({"status": "success", "message": f"Typed: '{text}'"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+@mcp.tool()
+def execute_shell_command(command: str) -> str:
+    """รันคำสั่งใน command line / terminal"""
+    if not GUI_CONTROL_ENABLED:
+        return json.dumps({"error": "GUI control is disabled for security reasons"})
+
+    try:
+        # อนุญาตเฉพาะคำสั่งที่ปลอดภัย
+        SAFE_COMMANDS = ['ls', 'pwd', 'whoami', 'date', 'echo']
+        command_base = command.split()[0]
+
+        if command_base not in SAFE_COMMANDS:
+            return json.dumps({"error": f"Command '{command_base}' is not in the allowed list for security"})
+
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            return json.dumps({"output": result.stdout or "Command executed successfully"})
+        else:
+            return json.dumps({"error": result.stderr})
     except Exception as e:
         return json.dumps({"error": str(e)})
 

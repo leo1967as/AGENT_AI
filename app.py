@@ -15,19 +15,21 @@ async def start():
     """
     ฟังก์ชันนี้จะถูกเรียกเมื่อผู้ใช้เริ่มแชทใหม่
     """
-    # สร้าง Agent instance
+    # สร้าง Agent instance (ที่ตอนนี้เป็นแค่เครื่องยนต์)
     agent_instance = AdvancedWebAgent()
 
-    # สร้าง Agent ที่มีความจำที่ถูกต้อง
+    # --- 💡 สร้าง Agent ที่มีความจำที่ถูกต้องที่นี่! ---
+    # เราจะผูก AgentExecutor เข้ากับระบบจัดการประวัติแชทของ Chainlit
     agent_with_memory = RunnableWithMessageHistory(
         agent_instance.agent_executor,
-        # ใช้ lambda ที่ return chat_history ถ้ามี หรือสร้างใหม่ถ้าไม่มี
-        lambda session_id: cl.user_session.get("chat_history") or ChatMessageHistory(),
+        # ใช้ cl.user_session.get("chat_history") เพื่อให้ Chainlit จัดการ memory ให้
+        lambda session_id: cl.user_session.get("chat_history"),
         input_messages_key="input",
         history_messages_key="chat_history",
     )
 
-    # บันทึก Agent ไว้ใน session (ไม่ต้อง set chat_history เพราะ lambda จัดการเอง)
+    # บันทึกประวัติแชท (ที่เริ่มต้นว่างเปล่า) และ "Agent ที่มีความจำ" ไว้ใน session
+    cl.user_session.set("chat_history", ChatMessageHistory())
     cl.user_session.set("agent_with_memory", agent_with_memory)
 
     # --- 💡 ยกเครื่องหน้าจอเริ่มต้นทั้งหมด ---
@@ -141,10 +143,8 @@ async def main(message: cl.Message):
 
     final_answer = response.get("output", "ขออภัย, ผมไม่สามารถหาคำตอบได้ในขณะนี้")
 
-    # --- 💡 เพิ่ม messages ลงใน chat_history ---
-    chat_history = cl.user_session.get("chat_history")
-    chat_history.add_user_message(message.content)
-    chat_history.add_ai_message(final_answer)
+    # --- 💡 ลบการจัดการ history ด้วยมือทิ้งไป! ---
+    # RunnableWithMessageHistory จะทำส่วนนี้ให้เราโดยอัตโนมัติ
 
     # --- 💡 สร้าง Elements ที่จะแสดงผล ---
     elements = []
